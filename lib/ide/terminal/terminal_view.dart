@@ -157,6 +157,7 @@ class _TerminalViewState extends State<TerminalView> with TextInputClient {
   // mirror), and whether it is to focus it once it does (pressed).
   bool _owning = false;
   bool _focusOnOwning = false;
+  int _attachment = 0;
 
   IBufferRange? _linkRange() => _link?.range;
 
@@ -274,9 +275,61 @@ class _TerminalViewState extends State<TerminalView> with TextInputClient {
     instance.clipboard.confirmPaste = _confirmPaste;
     instance.focusNode.addListener(_focusChanged);
     if (instance.focusNode.hasFocus) _focusChanged();
+    _scheduleWindowsProfileDialog();
+  }
+
+  void _scheduleWindowsProfileDialog() {
+    if (!_owning) return;
+    final instance = _instance;
+    final prompt = instance.unclaimedWindowsProfilePrompt;
+    if (prompt == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_owning || _instance != instance) return;
+      if (!instance.claimWindowsProfilePrompt(prompt)) return;
+      if (Navigator.maybeOf(context) == null) {
+        instance.answerWindowsProfilePrompt(prompt, useRemoteSigned: null);
+        return;
+      }
+      unawaited(_showWindowsProfileDialog(instance, prompt, _attachment));
+    });
+    // The launch can be ready while the view is idle, outside a frame.
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  Future<void> _showWindowsProfileDialog(
+    TerminalInstance instance,
+    WindowsProfilePrompt prompt,
+    int attachment,
+  ) async {
+    bool? useRemoteSigned;
+    try {
+      final strings = context.l10n;
+      final choice = await showIdeDialog(
+        context,
+        message: strings.termPowerShellProfileRestricted,
+        detail: prompt.canUseRemoteSigned
+            ? strings.termPowerShellProfileChoiceDetail
+            : strings.termPowerShellProfileManagedDetail,
+        buttons: [
+          strings.termPowerShellSkipProfile,
+          if (prompt.canUseRemoteSigned) strings.termPowerShellUseRemoteSigned,
+        ],
+      );
+      if (mounted && _attachment == attachment && choice != null) {
+        useRemoteSigned = choice == 1;
+      }
+    } finally {
+      // A replaced view cannot authorize the launch; a discarded launch
+      // ignores the answer altogether.
+      instance.answerWindowsProfilePrompt(
+        prompt,
+        useRemoteSigned: useRemoteSigned,
+      );
+    }
   }
 
   void _detach(TerminalInstance instance) {
+    _attachment++;
     _subscriptions.clear();
     instance.removeListener(_instanceChanged);
     _integrationSubscriptions.clear();
@@ -619,6 +672,7 @@ class _TerminalViewState extends State<TerminalView> with TextInputClient {
   /// The shell integration comes with the launch.
   void _instanceChanged() {
     if (_instance.shellIntegration != _integration) _attachShellIntegration();
+    _scheduleWindowsProfileDialog();
   }
 
   void _attachShellIntegration() {

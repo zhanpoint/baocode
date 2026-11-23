@@ -5313,6 +5313,24 @@ class AppLocalizationsEn extends AppLocalizations {
   String get termClear => 'Clear';
 
   @override
+  String get termPowerShellProfileRestricted =>
+      'Windows blocked the PowerShell 5.1 startup profile';
+
+  @override
+  String get termPowerShellProfileChoiceDetail =>
+      'Not sure what to choose? Skip the profile. If you trust it, you can allow local scripts in this terminal only, without changing Windows settings.';
+
+  @override
+  String get termPowerShellProfileManagedDetail =>
+      'This computer’s settings don’t allow a temporary exception. You can still open the terminal without the profile.';
+
+  @override
+  String get termPowerShellSkipProfile => 'Open Without Profile';
+
+  @override
+  String get termPowerShellUseRemoteSigned => 'Allow Local Scripts Once';
+
+  @override
   String get termPasteAsOneLine => 'Paste as one line';
 
   @override

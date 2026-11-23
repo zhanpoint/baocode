@@ -36,12 +36,33 @@ class TerminalProfile {
     required this.path,
     this.args = const [],
     this.isAutoDetected = false,
+    this.isUserConfigured = false,
+    this.version,
   });
 
+  /// The stable settings key, independent of the label shown to the user.
   final String name;
   final String path;
   final List<String> args;
   final bool isAutoDetected;
+  final bool isUserConfigured;
+  final String? version;
+
+  String get displayName {
+    final version = this.version;
+    if (isUserConfigured || version == null) return name;
+    final label = name == 'Windows PowerShell' ? 'PowerShell' : name;
+    return '$label（$version）';
+  }
+
+  TerminalProfile withVersion(String version) => TerminalProfile(
+    name: name,
+    path: path,
+    args: args,
+    isAutoDetected: isAutoDetected,
+    isUserConfigured: isUserConfigured,
+    version: version,
+  );
 
   TerminalShell get shell => (executable: path, arguments: args);
 
@@ -51,11 +72,19 @@ class TerminalProfile {
       other.name == name &&
       other.path == path &&
       listEquals(other.args, args) &&
-      other.isAutoDetected == isAutoDetected;
+      other.isAutoDetected == isAutoDetected &&
+      other.isUserConfigured == isUserConfigured &&
+      other.version == version;
 
   @override
-  int get hashCode =>
-      Object.hash(name, path, Object.hashAll(args), isAutoDetected);
+  int get hashCode => Object.hash(
+    name,
+    path,
+    Object.hashAll(args),
+    isAutoDetected,
+    isUserConfigured,
+    version,
+  );
 
   @override
   String toString() =>
@@ -101,6 +130,7 @@ typedef _Unresolved = ({
   List<String> args,
   _Source? source,
   bool isAutoDetected,
+  bool isUserConfigured,
 });
 
 enum _Source { powerShell, gitBash }
@@ -136,6 +166,7 @@ List<TerminalProfile> detectTerminalProfiles(
     args: args,
     source: source,
     isAutoDetected: isAutoDetected,
+    isUserConfigured: false,
   );
 
   if (os == TerminalOs.windows) {
@@ -149,7 +180,7 @@ List<TerminalProfile> detectTerminalProfiles(
         isAutoDetected: true,
       )
       ..['Windows PowerShell'] = profile([
-        '$system32\\WindowsPowerShell\\v1.0\\powershell.exe',
+        windowsPowerShell(environment),
       ], isAutoDetected: true)
       ..['Git Bash'] = profile(
         const [],
@@ -213,18 +244,19 @@ List<TerminalProfile> detectTerminalProfiles(
       _Source.gitBash => _gitBashPaths(env),
       null => unresolved.paths,
     };
+    final path = _firstExisting(paths, os, environment, exists);
+    if (path == null) continue;
     final args = switch (unresolved.source) {
       _Source.gitBash when unresolved.args.isEmpty => const ['--login', '-i'],
       _ => unresolved.args,
     };
-    final path = _firstExisting(paths, os, environment, exists);
-    if (path == null) continue;
     result.add(
       TerminalProfile(
         name: name,
         path: path,
         args: args,
         isAutoDetected: unresolved.isAutoDetected,
+        isUserConfigured: unresolved.isUserConfigured,
       ),
     );
   }
@@ -284,6 +316,7 @@ void _applyConfigured(
       args: args,
       source: paths.isEmpty ? source : null,
       isAutoDetected: false,
+      isUserConfigured: true,
     );
   }
 }

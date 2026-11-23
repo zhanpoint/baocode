@@ -196,7 +196,14 @@ ShellIntegrationInjectionResult getShellIntegrationInjection({
     if (shell == 'pwsh.exe' || shell == 'powershell.exe') {
       envMixin['VSCODE_A11Y_MODE'] = isScreenReaderOptimized ? '1' : '0';
 
-      if (_isFalsy(originalArgs) || _arePwshImpliedArgs(originalArgs!)) {
+      if (originalArgs is List<String> &&
+          originalArgs.length == 1 &&
+          originalArgs.single.toLowerCase() == '-noprofile') {
+        newArgs = [
+          ...originalArgs,
+          ..._shellIntegrationArgs[_ShellIntegrationExecutable.windowsPwsh]!,
+        ];
+      } else if (_isFalsy(originalArgs) || _arePwshImpliedArgs(originalArgs!)) {
         newArgs =
             _shellIntegrationArgs[_ShellIntegrationExecutable.windowsPwsh];
       } else if (_arePwshLoginArgs(originalArgs)) {

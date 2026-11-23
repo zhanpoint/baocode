@@ -137,8 +137,26 @@ void main() {
       );
     });
 
+    test('finds the standalone Store alias and pwsh on PATH before 5.1', () {
+      const alias = r'C:\Users\me\AppData\Local\Microsoft\WindowsApps\pwsh.exe';
+      const portable = r'D:\Portable PowerShell\pwsh.exe';
+      const env = {...environment, 'Path': r'"D:\Portable PowerShell"'};
+      expect(
+        shell({
+          alias,
+          portable,
+          windowsPowerShell,
+        }, environment: env).executable,
+        alias,
+      );
+      expect(
+        shell({portable, windowsPowerShell}, environment: env).executable,
+        portable,
+      );
+    });
+
     test('falls back to Windows PowerShell, then ComSpec', () {
-      expect(shell({windowsPowerShell}).executable, windowsPowerShell);
+      expectShell(shell({windowsPowerShell}), windowsPowerShell, []);
       expect(shell({}).executable, r'C:\Windows\system32\cmd.exe');
       expect(shell({}, environment: const {}).executable, 'cmd.exe');
     });

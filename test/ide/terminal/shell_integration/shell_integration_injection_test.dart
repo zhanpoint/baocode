@@ -425,6 +425,14 @@ void main() {
           isA<ShellIntegrationConfigInjection>(),
         );
       });
+      test('keeps NoProfile when injecting Windows PowerShell', () {
+        final injection = _inject('powershell.exe', [
+          '-NoProfile',
+        ], os: TerminalOs.windows) as ShellIntegrationConfigInjection;
+        final args = injection.newArgs!;
+        expect(args.take(3), ['-NoProfile', '-noexit', '-command']);
+        expect(args.last, contains('shellIntegration.ps1'));
+      });
       test('injects Git Bash as bash', () {
         _expectInjection(
           _inject(r'C:\Program Files\Git\bin\bash.exe', [

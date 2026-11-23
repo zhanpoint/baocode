@@ -21,6 +21,7 @@ import '../ide/terminal/terminal_instance.dart';
 import '../ide/terminal/terminal_profile_service.dart';
 import '../ide/terminal/terminal_profiles.dart';
 import '../ide/terminal/terminal_service.dart';
+import '../ide/terminal/terminal_shell.dart' show TerminalOs;
 import '../ide/terminal/terminal_tabs.dart';
 import '../ide/terminal/terminal_tasks.dart';
 import '../ide/terminal/terminal_view.dart';
@@ -419,14 +420,15 @@ class _TerminalDeckState extends State<TerminalDeck> {
     final available = terminalDropdownProfiles(
       profiles.availableProfiles,
       defaultName,
+      includeDetected: profiles.os == TerminalOs.windows,
     );
     return ideMenuGroups([
       [
         for (final profile in available)
           IdeMenuAction(
             profile.name == defaultName
-                ? l10n.termProfileDefault(profile.name)
-                : profile.name,
+                ? l10n.termProfileDefault(profile.displayName)
+                : profile.displayName,
             onSelected: folders == null ? () => onNew(profile) : null,
             submenu: folders?.call(profile),
           ),
@@ -438,7 +440,7 @@ class _TerminalDeckState extends State<TerminalDeck> {
           submenu: [
             for (final profile in available)
               IdeMenuAction(
-                profile.name,
+                profile.displayName,
                 checked: profile.name == defaultName,
                 onSelected: () => unawaited(
                   profiles.setDefaultProfile(profile).catchError((_) {}),

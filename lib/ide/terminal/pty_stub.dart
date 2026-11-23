@@ -20,6 +20,20 @@ abstract final class PtyProcesses {
     TerminalEnvironmentRequest? environment,
   }) async => throw _unsupported;
 
+  static Future<({PtyLaunch launch, WindowsProfilePolicy? policy})>
+  prepareInteractiveTerminalLaunch(
+    String root, {
+    required int columns,
+    required int rows,
+    TerminalShell? shell,
+    TerminalEnvironmentRequest? environment,
+  }) async => throw _unsupported;
+
+  static Future<PtyLaunch> launchWindowsProfileChoice(
+    PtyLaunch launch, {
+    required bool useRemoteSigned,
+  }) async => throw _unsupported;
+
   static Future<TerminalProfiles> terminalProfiles({
     Object? configured,
   }) async => (profiles: const <TerminalProfile>[], systemShell: _noShell);

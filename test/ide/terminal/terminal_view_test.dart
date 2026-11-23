@@ -4,6 +4,7 @@
 // reporting, the context menu, the multi-line paste warning, find, links
 // and the shell integration's command marks.
 
+import 'dart:async';
 import 'dart:ui' as ui;
 
 import 'package:flutter/gestures.dart';
@@ -13,6 +14,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:baocode/ide/ide_find_widget.dart';
 import 'package:baocode/ide/terminal/links/terminal_links.dart';
+import 'package:baocode/ide/terminal/pty.dart';
 import 'package:baocode/ide/terminal/terminal_instance.dart';
 import 'package:baocode/ide/terminal/terminal_view.dart';
 import 'package:baocode/ide/terminal/terminal_widget.dart';
@@ -232,7 +234,233 @@ class _WindowsInput {
   return (copied: copied, set: (value) => text = value);
 }
 
+TerminalBackend _profileBackend(
+  List<FakePty> started,
+  List<bool> choices, {
+  bool canUseRemoteSigned = true,
+  TerminalLauncher launch = terminalLaunch,
+  Future<void>? prepareGate,
+}) => TerminalBackend(
+  launch: launch,
+  prepareInteractiveLaunch:
+      (root, {required columns, required rows, shell, environment}) async {
+        final raw = await fakeTerminalLaunch(
+          root,
+          columns: columns,
+          rows: rows,
+          shell: (executable: 'pwsh.exe', arguments: const ['-NoLogo']),
+          environment: environment,
+        );
+        if (prepareGate != null) await prepareGate;
+        return (launch: raw, policy: (canUseRemoteSigned: canUseRemoteSigned));
+      },
+  windowsProfileChoice: (launch, {required useRemoteSigned}) async {
+    choices.add(useRemoteSigned);
+    return PtyLaunch(
+      executable: launch.executable,
+      arguments: [
+        ...launch.arguments,
+        if (useRemoteSigned) ...[
+          '-ExecutionPolicy',
+          'RemoteSigned',
+        ] else
+          '-NoProfile',
+      ],
+      workingDirectory: launch.workingDirectory,
+      environment: launch.environment,
+      columns: launch.columns,
+      rows: launch.rows,
+    );
+  },
+  start: FakePty.starter(started),
+);
+
 void main() {
+  group('PowerShell profile policy', () {
+    const skip = 'Open Without Profile';
+    const allow = 'Allow Local Scripts Once';
+
+    for (final useRemoteSigned in [false, true]) {
+      testWidgets(
+        'waits for the primary view and uses choice $useRemoteSigned',
+        (tester) async {
+          final started = <FakePty>[];
+          final choices = <bool>[];
+          final terminal = TerminalInstance(
+            id: 1,
+            root: '/project',
+            cwd: '/chosen/folder',
+            backend: _profileBackend(started, choices),
+            environmentMutator: (env) => env['TEST_VALUE'] = 'preserved',
+          );
+          addTearDown(terminal.dispose);
+          final mirror = ValueNotifier(true);
+          addTearDown(mirror.dispose);
+          await tester.pumpWidget(
+            MaterialApp(
+              home: ValueListenableBuilder(
+                valueListenable: mirror,
+                builder: (context, mirrored, _) =>
+                    TerminalView(terminal, mirror: mirrored),
+              ),
+            ),
+          );
+          await _settle(tester);
+          expect(started, isEmpty);
+          expect(find.text(skip), findsNothing);
+
+          mirror.value = false;
+          await _settle(tester);
+          expect(
+            find.text('Windows blocked the PowerShell 5.1 startup profile'),
+            findsOneWidget,
+          );
+          expect(find.text(skip), findsOneWidget);
+          expect(find.text(allow), findsOneWidget);
+          expect(started, isEmpty);
+          terminal.rename('PowerShell');
+          await _settle(tester);
+          expect(find.text(skip, skipOffstage: false), findsOneWidget);
+          await tester.tap(find.text(useRemoteSigned ? allow : skip));
+          await _settle(tester);
+          expect(choices, [useRemoteSigned]);
+          final launch = started.single.launch!;
+          expect(launch.workingDirectory, '/chosen/folder');
+          expect(launch.environment, containsPair('TEST_VALUE', 'preserved'));
+          expect(
+            launch.arguments,
+            useRemoteSigned
+                ? ['-NoLogo', '-ExecutionPolicy', 'RemoteSigned']
+                : ['-NoLogo', '-NoProfile'],
+          );
+          await tester.pumpWidget(const SizedBox());
+        },
+      );
+    }
+
+    testWidgets('managed policy omits RemoteSigned; dismissal does not start', (
+      tester,
+    ) async {
+      final started = <FakePty>[];
+      final choices = <bool>[];
+      final terminal = TerminalInstance(
+        id: 1,
+        root: '/project',
+        backend: _profileBackend(started, choices, canUseRemoteSigned: false),
+      );
+      addTearDown(terminal.dispose);
+      await tester.pumpWidget(MaterialApp(home: TerminalView(terminal)));
+      await _settle(tester);
+      expect(find.text(skip), findsOneWidget);
+      expect(find.text(allow), findsNothing);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await _settle(tester);
+      expect(terminal.exited, isTrue);
+      expect(terminal.exitReason, TerminalExitReason.user);
+      expect(choices, isEmpty);
+      expect(started, isEmpty);
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('disposing before the policy check completes never starts', (
+      tester,
+    ) async {
+      final started = <FakePty>[];
+      final choices = <bool>[];
+      final gate = Completer<void>();
+      final terminal = TerminalInstance(
+        id: 1,
+        root: '/project',
+        backend: _profileBackend(started, choices, prepareGate: gate.future),
+      );
+      await tester.pumpWidget(MaterialApp(home: TerminalView(terminal)));
+      await tester.pumpWidget(const SizedBox());
+      terminal.dispose();
+      gate.complete();
+      await _settle(tester);
+      expect(started, isEmpty);
+      expect(choices, isEmpty);
+    });
+
+    for (final dispose in [false, true]) {
+      testWidgets(
+        'a detached view cannot authorize startup (disposed: $dispose)',
+        (tester) async {
+          final started = <FakePty>[];
+          final choices = <bool>[];
+          final terminal = TerminalInstance(
+            id: 1,
+            root: '/project',
+            backend: _profileBackend(started, choices),
+          );
+          final view = ValueNotifier(true);
+          addTearDown(view.dispose);
+          await tester.pumpWidget(
+            MaterialApp(
+              home: ValueListenableBuilder(
+                valueListenable: view,
+                builder: (context, show, _) =>
+                    show ? TerminalView(terminal) : const SizedBox(),
+              ),
+            ),
+          );
+          await _settle(tester);
+          expect(find.text(allow), findsOneWidget);
+          view.value = false;
+          await tester.pump();
+          if (dispose) terminal.dispose();
+          await tester.tap(find.text(allow));
+          await _settle(tester);
+          expect(started, isEmpty);
+          expect(choices, isEmpty);
+          if (!dispose) {
+            expect(terminal.exitReason, TerminalExitReason.user);
+            terminal.dispose();
+          }
+        },
+      );
+    }
+
+    testWidgets('a primary view without a Navigator cancels the launch', (
+      tester,
+    ) async {
+      final started = <FakePty>[];
+      final choices = <bool>[];
+      final terminal = TerminalInstance(
+        id: 1,
+        root: '/project',
+        backend: _profileBackend(started, choices),
+      );
+      addTearDown(terminal.dispose);
+      await tester.pumpWidget(
+        MaterialApp(builder: (_, _) => TerminalView(terminal)),
+      );
+      await _settle(tester);
+      expect(terminal.exitReason, TerminalExitReason.user);
+      expect(started, isEmpty);
+      expect(choices, isEmpty);
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('a custom launcher does not use local preparation', (
+      tester,
+    ) async {
+      final started = <FakePty>[];
+      final choices = <bool>[];
+      final terminal = TerminalInstance(
+        id: 1,
+        root: '/remote',
+        backend: _profileBackend(started, choices, launch: fakeTerminalLaunch),
+      );
+      addTearDown(terminal.dispose);
+      await tester.pumpWidget(MaterialApp(home: TerminalView(terminal)));
+      await _settle(tester);
+      expect(started.single.launch!.workingDirectory, '/remote');
+      expect(choices, isEmpty);
+      expect(find.text(skip), findsNothing);
+      await tester.pumpWidget(const SizedBox());
+    });
+  });
   testWidgets('the emulator draws what the process prints, and the grid it '
       'fits is the process\'s size', (tester) async {
     final (:terminal, :pty) = await _show(tester);

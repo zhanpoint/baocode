@@ -75,6 +75,33 @@ Future<PtyLaunch> terminalLaunch(
   environment: environment,
 );
 
+typedef WindowsProfilePolicy = ({bool canUseRemoteSigned});
+
+/// Prepares a local interactive terminal, asking the view to resolve a known
+/// Windows PowerShell profile restriction before starting the process.
+Future<({PtyLaunch launch, WindowsProfilePolicy? policy})>
+prepareInteractiveTerminalLaunch(
+  String root, {
+  required int columns,
+  required int rows,
+  TerminalShell? shell,
+  TerminalEnvironmentRequest? environment,
+}) => platform.PtyProcesses.prepareInteractiveTerminalLaunch(
+  root,
+  columns: columns,
+  rows: rows,
+  shell: shell,
+  environment: environment,
+);
+
+Future<PtyLaunch> launchWindowsProfileChoice(
+  PtyLaunch launch, {
+  required bool useRemoteSigned,
+}) => platform.PtyProcesses.launchWindowsProfileChoice(
+  launch,
+  useRemoteSigned: useRemoteSigned,
+);
+
 /// The terminal profiles of this system, [configured] (the user's
 /// `terminal.integrated.profiles.<os>`) over VS Code's defaults, and the
 /// shell a terminal starts with none set (see terminal_profiles.dart); none

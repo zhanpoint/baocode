@@ -111,6 +111,7 @@ void main() {
         name: 'Login fish',
         path: '/opt/homebrew/bin/fish',
         args: ['--login'],
+        isUserConfigured: true,
       ),
     );
   });
@@ -160,6 +161,59 @@ void main() {
     expect(started.last.launch!.executable, '/bin/zsh');
   });
 
+  test(
+    'version labels do not change which profile is saved or selected',
+    () async {
+      const modern = TerminalProfile(
+        name: 'PowerShell',
+        path: r'C:\Program Files\PowerShell\7\pwsh.exe',
+        version: '7.7.0',
+      );
+      const legacy = TerminalProfile(
+        name: 'Windows PowerShell',
+        path: r'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe',
+        version: '5.1',
+        isAutoDetected: true,
+      );
+      final profiles = TerminalProfileService(
+        TerminalBackend(
+          launch: fakeTerminalLaunch,
+          start: FakePty.starter(started),
+          detectProfiles: ({Object? configured}) async =>
+              (profiles: [modern, legacy], systemShell: modern.shell),
+          settings: settings,
+        ),
+        os: TerminalOs.windows,
+      );
+      addTearDown(profiles.dispose);
+      await profiles.refresh();
+      await profiles.setDefaultProfile(legacy);
+      expect(
+        settings['terminal.integrated.defaultProfile.windows'],
+        legacy.name,
+      );
+      expect(profiles.defaultProfileName, legacy.name);
+      expect(await profiles.defaultShell(), legacy.shell);
+
+      TerminalProfile? picked;
+      final pick = terminalProfilePick(
+        profiles: profiles.availableProfiles,
+        defaultName: profiles.defaultProfileName,
+        placeholder: 'Pick one',
+        onPick: (profile) => picked = profile,
+        l10n: AppLocalizationsEn(),
+      );
+      expect(
+        pick.items.whereType<IdeQuickPickItem>().map((item) => item.label),
+        ['PowerShell（7.7.0）', 'PowerShell（5.1）'],
+      );
+      final active = pick.activeItems!.single;
+      expect(active.label, 'PowerShell（5.1）');
+      pick.onDidAccept!(active);
+      expect(picked, legacy);
+    },
+  );
+
   test('without settings.json no default can be set', () async {
     final profiles = service();
     addTearDown(profiles.dispose);
@@ -195,6 +249,14 @@ void main() {
     expect(
       terminalDropdownProfiles(found, 'sh').map((profile) => profile.name),
       ['bash', 'fish', 'zsh'],
+    );
+    expect(
+      terminalDropdownProfiles(
+        found,
+        'sh',
+        includeDetected: true,
+      ).map((profile) => profile.name),
+      ['sh', 'bash', 'fish', 'zsh'],
     );
   });
 

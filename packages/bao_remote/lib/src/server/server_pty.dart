@@ -6,6 +6,7 @@ import 'package:bao_conpty/bao_conpty.dart';
 import 'package:path/path.dart' as p;
 
 import '../claude/claude_environment.dart';
+import '../files/browse.dart' show windowsAppExecutionAliasExists;
 import '../protocol.dart';
 import '../platform/process_tree.dart';
 import '../pty/posix_pty.dart';
@@ -63,6 +64,8 @@ class ServerPty {
           'shells': {
             for (final path in windowsPowerShells(environment, list: _list))
               if (_exists(path)) path,
+            if (_exists(windowsPowerShell(environment)))
+              windowsPowerShell(environment),
             if (comspec != null && comspec.isNotEmpty) comspec,
           }.toList(),
         };
@@ -98,7 +101,8 @@ class ServerPty {
       ? TerminalOs.macOS
       : TerminalOs.linux;
 
-  static bool _exists(String path) => File(path).existsSync();
+  static bool _exists(String path) =>
+      File(path).existsSync() || windowsAppExecutionAliasExists(path);
 
   static List<String> _list(String directory) {
     try {

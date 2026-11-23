@@ -64,6 +64,30 @@ typedef TerminalLauncher = Future<PtyLaunch> Function(
   TerminalEnvironmentRequest? environment,
 });
 
+typedef InteractiveTerminalLaunchPreparer =
+    Future<({PtyLaunch launch, WindowsProfilePolicy? policy})> Function(
+      String root, {
+      required int columns,
+      required int rows,
+      TerminalShell? shell,
+      TerminalEnvironmentRequest? environment,
+    });
+
+typedef WindowsProfileChoiceLauncher = Future<PtyLaunch> Function(
+  PtyLaunch launch, {
+  required bool useRemoteSigned,
+});
+
+/// One launch's choice of how to start PowerShell with a restricted profile.
+/// A primary view claims it before showing the dialog.
+class WindowsProfilePrompt {
+  WindowsProfilePrompt._(this.canUseRemoteSigned);
+
+  final bool canUseRemoteSigned;
+  final _choice = Completer<bool?>();
+  bool _claimed = false;
+}
+
 /// Why a terminal closed, as VS Code's `TerminalExitReason` (its values
 /// are the wire's).
 enum TerminalExitReason { unknown, shutdown, process, user, extension }
@@ -160,6 +184,8 @@ class TerminalBackend {
     this.launch = terminalLaunch,
     this.start = startPty,
     this.detectProfiles = terminalProfiles,
+    this.prepareInteractiveLaunch = prepareInteractiveTerminalLaunch,
+    this.windowsProfileChoice = launchWindowsProfileChoice,
     this.settings,
     this.linkStat,
     this._supported,
@@ -167,6 +193,10 @@ class TerminalBackend {
 
   final TerminalLauncher launch;
   final PtyStarter start;
+
+  /// Only the default local launcher uses these PowerShell policy hooks.
+  final InteractiveTerminalLaunchPreparer prepareInteractiveLaunch;
+  final WindowsProfileChoiceLauncher windowsProfileChoice;
 
   /// Lists the shells a terminal can start, when the profiles are asked
   /// for (a dropdown opened), not before: the app's reads the disk.
@@ -329,6 +359,7 @@ class TerminalInstance extends ChangeNotifier {
     _shellIntegration?.dispose();
     _shellIntegration = null;
     _generation++;
+    _clearWindowsProfilePrompt();
     _writeInitialText();
     notifyListeners();
     unawaited(_start());
@@ -480,6 +511,39 @@ class TerminalInstance extends ChangeNotifier {
 
   PtyLaunch? _launch;
   Pty? _pty;
+  WindowsProfilePrompt? _windowsProfilePrompt;
+
+  WindowsProfilePrompt? get unclaimedWindowsProfilePrompt {
+    final prompt = _windowsProfilePrompt;
+    return prompt != null && !prompt._claimed ? prompt : null;
+  }
+
+  bool claimWindowsProfilePrompt(WindowsProfilePrompt prompt) {
+    if (unclaimedWindowsProfilePrompt != prompt) return false;
+    prompt._claimed = true;
+    return true;
+  }
+
+  /// Null dismisses the launch. An answer to an older launch does nothing.
+  void answerWindowsProfilePrompt(
+    WindowsProfilePrompt prompt, {
+    required bool? useRemoteSigned,
+  }) {
+    if (_windowsProfilePrompt != prompt || !prompt._claimed) return;
+    _windowsProfilePrompt = null;
+    prompt._choice.complete(
+      useRemoteSigned == true && !prompt.canUseRemoteSigned
+          ? null
+          : useRemoteSigned,
+    );
+  }
+
+  void _clearWindowsProfilePrompt() {
+    final prompt = _windowsProfilePrompt;
+    _windowsProfilePrompt = null;
+    prompt?._choice.complete(null);
+  }
+
   int _columns;
   int _rows;
   String? _userTitle;
@@ -673,19 +737,51 @@ class TerminalInstance extends ChangeNotifier {
         // An empty cwd (a debug adapter's `runInTerminal` may send one) is
         // none, as upstream's `getCwd` reads it.
         final cwd = config?.cwd ?? this.cwd;
-        final launch = await backend.launch(
-          cwd == null || cwd.isEmpty ? root : cwd,
-          columns: _columns,
-          rows: _rows,
-          shell: shell,
-          environment: config?.env != null || mutator != null
-              ? TerminalEnvironmentRequest(
-                  env: config?.env,
-                  strict: config?.strictEnv ?? false,
-                  mutate: mutator,
-                )
-              : null,
-        );
+        final directory = cwd == null || cwd.isEmpty ? root : cwd;
+        final environment = config?.env != null || mutator != null
+            ? TerminalEnvironmentRequest(
+                env: config?.env,
+                strict: config?.strictEnv ?? false,
+                mutate: mutator,
+              )
+            : null;
+        final PtyLaunch launch;
+        if (config == null && backend.launch == terminalLaunch) {
+          final prepared = await backend.prepareInteractiveLaunch(
+            directory,
+            columns: _columns,
+            rows: _rows,
+            shell: shell,
+            environment: environment,
+          );
+          if (stale()) return;
+          if (prepared.policy case final policy?) {
+            final prompt = WindowsProfilePrompt._(policy.canUseRemoteSigned);
+            _windowsProfilePrompt = prompt;
+            notifyListeners();
+            final choice = await prompt._choice.future;
+            if (stale()) return;
+            if (choice == null) {
+              exitReason = TerminalExitReason.user;
+              _end(null, null);
+              return;
+            }
+            launch = await backend.windowsProfileChoice(
+              prepared.launch,
+              useRemoteSigned: choice,
+            );
+          } else {
+            launch = prepared.launch;
+          }
+        } else {
+          launch = await backend.launch(
+            directory,
+            columns: _columns,
+            rows: _rows,
+            shell: shell,
+            environment: environment,
+          );
+        }
         if (stale()) return;
         _launch = launch;
         _shellIntegration = ShellIntegration(
@@ -696,6 +792,7 @@ class TerminalInstance extends ChangeNotifier {
         );
         _onShellIntegrationReady.add(null);
         notifyListeners();
+        if (stale()) return;
         pty = await backend.start(launch);
       }
       if (stale()) {
@@ -828,6 +925,7 @@ class TerminalInstance extends ChangeNotifier {
   void dispose() {
     if (_disposed) return;
     _disposed = true;
+    _clearWindowsProfilePrompt();
     _colorTheme.removeListener(_updateTheme);
     CodeFont.families.removeListener(_updateFont);
     if (!_exited) _pty?.kill();

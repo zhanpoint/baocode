@@ -7,4 +7,5 @@ export 'package:bao_remote/terminal.dart'
         terminalLang,
         terminalProgram,
         terminalShellArguments,
+        windowsPowerShell,
         windowsPowerShells;

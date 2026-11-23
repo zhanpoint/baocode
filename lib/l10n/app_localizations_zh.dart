@@ -4971,6 +4971,24 @@ class AppLocalizationsZh extends AppLocalizations {
   String get termClear => '清除';
 
   @override
+  String get termPowerShellProfileRestricted =>
+      'PowerShell 5.1 的启动配置被 Windows 阻止';
+
+  @override
+  String get termPowerShellProfileChoiceDetail =>
+      '不确定选什么？跳过配置，终端照常可用。如果信任启动配置，可以仅在此终端允许本地脚本，不会更改 Windows 设置。';
+
+  @override
+  String get termPowerShellProfileManagedDetail =>
+      '这台电脑不允许临时放宽限制。你仍可跳过配置并打开终端。';
+
+  @override
+  String get termPowerShellSkipProfile => '跳过配置并打开';
+
+  @override
+  String get termPowerShellUseRemoteSigned => '本次允许本地脚本';
+
+  @override
   String get termPasteAsOneLine => '粘贴为一行';
 
   @override

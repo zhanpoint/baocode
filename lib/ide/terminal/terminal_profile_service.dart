@@ -137,16 +137,17 @@ class TerminalProfileService extends ChangeNotifier {
   }
 }
 
-/// The profiles' order in the New Terminal dropdown
-/// (terminalMenus.ts `getTerminalActionBarArgs`): those of the settings,
-/// the default first, the others by name.
+/// New Terminal dropdown: the default first, the others by name.
+/// On Windows, include detected
+/// shells so Windows PowerShell and the other installed shells are selectable.
 List<TerminalProfile> terminalDropdownProfiles(
   List<TerminalProfile> profiles,
-  String? defaultName,
-) {
+  String? defaultName, {
+  bool includeDetected = false,
+}) {
   final listed = [
     for (final profile in profiles)
-      if (!profile.isAutoDetected) profile,
+      if (includeDetected || !profile.isAutoDetected) profile,
   ]..sort((a, b) => a.name.compareTo(b.name));
   final index = listed.indexWhere((profile) => profile.name == defaultName);
   if (index > 0) listed.insert(0, listed.removeAt(index));
@@ -164,7 +165,7 @@ IdeQuickPick terminalProfilePick({
   required AppLocalizations l10n,
 }) {
   IdeQuickPickItem item(TerminalProfile profile) => IdeQuickPickItem(
-    label: profile.name,
+    label: profile.displayName,
     description: [
       profile.path,
       for (final arg in profile.args)
@@ -172,23 +173,19 @@ IdeQuickPick terminalProfilePick({
     ].join(' '),
     onAccept: () => onPick(profile),
   );
-  final configured = [
-    for (final profile in profiles)
-      if (!profile.isAutoDetected) item(profile),
-  ];
-  final detected = [
-    for (final profile in profiles)
-      if (profile.isAutoDetected) item(profile),
-  ];
-  final defaultIndex = profiles
-      .where((profile) => !profile.isAutoDetected)
-      .toList()
-      .indexWhere((profile) => profile.name == defaultName);
+  final configured = <IdeQuickPickItem>[];
+  final detected = <IdeQuickPickItem>[];
+  IdeQuickPickItem? active;
+  for (final profile in profiles) {
+    final entry = item(profile);
+    (profile.isAutoDetected ? detected : configured).add(entry);
+    if (profile.name == defaultName) active = entry;
+  }
   return IdeQuickPick(
     placeholder: placeholder,
     matchOnDescription: true,
     sortByLabel: false,
-    activeItems: defaultIndex < 0 ? null : [configured[defaultIndex]],
+    activeItems: active == null ? null : [active],
     items: [
       if (configured.isNotEmpty) ...[
         IdeQuickPickSeparator(l10n.termProfilesGroup),

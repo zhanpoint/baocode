@@ -98,11 +98,16 @@ void main() {
           name: 'zsh',
           path: '/bin/zsh',
           args: ['-l', '-i'],
+          isUserConfigured: true,
         ),
       );
       expect(
         profiles.last,
-        const TerminalProfile(name: 'Home bash', path: '/bin/zsh'),
+        const TerminalProfile(
+          name: 'Home bash',
+          path: '/bin/zsh',
+          isUserConfigured: true,
+        ),
       );
     });
 
@@ -171,6 +176,40 @@ void main() {
       ]);
     });
 
+    test('versions decorate built-in names, not the configured name', () {
+      const path = r'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe';
+      final profiles = detectTerminalProfiles(
+        TerminalOs.windows,
+        environment,
+        exists: (file) => file == path,
+        list: (_) => const [],
+        configured: const {
+          'Custom': {'path': path},
+          'PowerShell': {
+            'path': path,
+            'args': ['-NoProfile'],
+          },
+        },
+      );
+      expect(profiles.first.args, ['-NoProfile']);
+      expect(profiles.map((profile) => profile.displayName), [
+        'PowerShell',
+        'Windows PowerShell',
+        'Custom',
+      ]);
+      expect(
+        {
+          for (final profile in profiles)
+            profile.name: profile.withVersion('5.1').displayName,
+        },
+        {
+          'PowerShell': 'PowerShell',
+          'Windows PowerShell': 'PowerShell（5.1）',
+          'Custom': 'Custom',
+        },
+      );
+    });
+
     test("a user's profile is found on the PATH, with its extensions; its "
         'args may be one string', () {
       final profiles = detectTerminalProfiles(
@@ -188,6 +227,7 @@ void main() {
           name: 'Nushell',
           path: r'C:\Windows\System32\nu.exe',
           args: ['-l', '--no-history'],
+          isUserConfigured: true,
         ),
       ]);
     });

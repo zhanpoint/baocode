@@ -3753,6 +3753,11 @@
   "termCopyCommand": "Copy Command",
   "termCopyOutput": "Copy Output",
   "termClear": "Clear",
+  "termPowerShellProfileRestricted": "Windows blocked the PowerShell 5.1 startup profile",
+  "termPowerShellProfileChoiceDetail": "Not sure what to choose? Skip the profile. If you trust it, you can allow local scripts in this terminal only, without changing Windows settings.",
+  "termPowerShellProfileManagedDetail": "This computer’s settings don’t allow a temporary exception. You can still open the terminal without the profile.",
+  "termPowerShellSkipProfile": "Open Without Profile",
+  "termPowerShellUseRemoteSigned": "Allow Local Scripts Once",
   "termPasteAsOneLine": "Paste as one line",
   "termPasteConfirm": "Are you sure you want to paste {count} lines of text into the terminal?",
   "@termPasteConfirm": {

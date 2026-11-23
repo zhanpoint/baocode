@@ -16,8 +16,8 @@ typedef TerminalShell = ({String executable, List<String> arguments});
 const terminalProgram = 'baocode';
 
 /// The shell a new terminal runs: on macOS and Linux, `$SHELL`; on Windows,
-/// the first PowerShell installed (see [windowsPowerShells]), else
-/// `ComSpec`.
+/// the first modern PowerShell installed (see [windowsPowerShells]), then
+/// [windowsPowerShell], then `ComSpec`.
 ///
 /// [exists] says whether a file is there, [list] the names in a folder
 /// (none when it is missing).
@@ -28,7 +28,10 @@ TerminalShell defaultTerminalShell(
   required List<String> Function(String directory) list,
 }) {
   if (os == TerminalOs.windows) {
-    for (final path in windowsPowerShells(environment, list: list)) {
+    for (final path in [
+      ...windowsPowerShells(environment, list: list),
+      windowsPowerShell(environment),
+    ]) {
       if (exists(path)) return (executable: path, arguments: const []);
     }
     final comspec = _lookUp(environment, 'ComSpec', os) ?? '';
@@ -64,8 +67,8 @@ List<String> terminalShellArguments(TerminalOs os, String shell) {
 /// Where PowerShell may be installed, most wanted first, as VS Code's
 /// enumerateDefaultPowerShellInstallations looks: PowerShell 7 and later
 /// (Program Files, then the other bitness, the Store, the .NET tool),
-/// previews of it, Scoop's, and last Windows PowerShell. Whether each is
-/// there is for the caller to check.
+/// then Scoop, the PATH and previews. Windows PowerShell is separate.
+/// Whether each candidate is there is for the caller to check.
 List<String> windowsPowerShells(
   Map<String, String> environment, {
   required List<String> Function(String directory) list,
@@ -117,18 +120,28 @@ List<String> windowsPowerShells(
     return null;
   }
 
-  final windir = get('windir') ?? get('SystemRoot') ?? r'C:\Windows';
   return [
     ?installed(programFiles),
     ?installed(otherProgramFiles),
     ?store(),
+    if (windowsApps != null) '$windowsApps\\pwsh.exe',
     if (home.isNotEmpty) '$home\\.dotnet\\tools\\pwsh.exe',
+    if (home.isNotEmpty) '$home\\scoop\\apps\\pwsh\\current\\pwsh.exe',
+    for (final dir in (get('PATH') ?? '').split(';'))
+      if (p.windows.isAbsolute(dir.trim().replaceAll('"', '')))
+        p.windows.join(dir.trim().replaceAll('"', ''), 'pwsh.exe'),
     ?installed(programFiles, preview: true),
     ?store(preview: true),
     ?installed(otherProgramFiles, preview: true),
-    if (home.isNotEmpty) '$home\\scoop\\apps\\pwsh\\current\\pwsh.exe',
-    '$windir\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
   ];
+}
+
+String windowsPowerShell(Map<String, String> environment) {
+  final windir =
+      _lookUp(environment, 'windir', TerminalOs.windows) ??
+      _lookUp(environment, 'SystemRoot', TerminalOs.windows) ??
+      r'C:\Windows';
+  return '$windir\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
 }
 
 /// The environment a terminal's shell starts with, as VS Code's

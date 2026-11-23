@@ -35,6 +35,7 @@ import 'terminal_instance.dart';
 import 'terminal_profile_service.dart';
 import 'terminal_profiles.dart';
 import 'terminal_service.dart';
+import 'terminal_shell.dart' show TerminalOs;
 import 'terminal_tabs.dart';
 import 'terminal_tasks.dart';
 import 'terminal_view.dart';
@@ -352,11 +353,12 @@ class TerminalTitleActions extends StatelessWidget {
         for (final profile in terminalDropdownProfiles(
           profiles.availableProfiles,
           defaultName,
+          includeDetected: profiles.os == TerminalOs.windows,
         ))
           IdeMenuAction(
             profile.name == defaultName
-                ? l10n.termProfileDefault(profile.name)
-                : profile.name,
+                ? l10n.termProfileDefault(profile.displayName)
+                : profile.displayName,
             onSelected: _askFolder ? null : () => onNewWithProfile(profile),
             submenu: _askFolder
                 ? terminalFolderMenu(

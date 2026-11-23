@@ -8565,6 +8565,36 @@ abstract class AppLocalizations {
   /// **'Clear'**
   String get termClear;
 
+  /// No description provided for @termPowerShellProfileRestricted.
+  ///
+  /// In en, this message translates to:
+  /// **'Windows blocked the PowerShell 5.1 startup profile'**
+  String get termPowerShellProfileRestricted;
+
+  /// No description provided for @termPowerShellProfileChoiceDetail.
+  ///
+  /// In en, this message translates to:
+  /// **'Not sure what to choose? Skip the profile. If you trust it, you can allow local scripts in this terminal only, without changing Windows settings.'**
+  String get termPowerShellProfileChoiceDetail;
+
+  /// No description provided for @termPowerShellProfileManagedDetail.
+  ///
+  /// In en, this message translates to:
+  /// **'This computer’s settings don’t allow a temporary exception. You can still open the terminal without the profile.'**
+  String get termPowerShellProfileManagedDetail;
+
+  /// No description provided for @termPowerShellSkipProfile.
+  ///
+  /// In en, this message translates to:
+  /// **'Open Without Profile'**
+  String get termPowerShellSkipProfile;
+
+  /// No description provided for @termPowerShellUseRemoteSigned.
+  ///
+  /// In en, this message translates to:
+  /// **'Allow Local Scripts Once'**
+  String get termPowerShellUseRemoteSigned;
+
   /// No description provided for @termPasteAsOneLine.
   ///
   /// In en, this message translates to:

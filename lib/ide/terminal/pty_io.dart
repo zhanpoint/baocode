@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:bao_remote/files.dart' show windowsAppExecutionAliasExists;
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:path/path.dart' as p;
 
@@ -9,6 +11,7 @@ import '../../platform/data_dir.dart';
 import '../../platform/child_process_registry.dart';
 import 'pty.dart';
 import 'shell_integration/shell_integration_files.dart';
+import 'terminal_profile_versions_windows.dart';
 import 'terminal_profiles.dart';
 import 'terminal_shell.dart';
 
@@ -43,7 +46,8 @@ abstract final class PtyProcesses {
       ? TerminalOs.macOS
       : TerminalOs.linux;
 
-  static bool _exists(String path) => File(path).existsSync();
+  static bool _exists(String path) =>
+      File(path).existsSync() || windowsAppExecutionAliasExists(path);
 
   static List<String> _list(String directory) {
     try {
@@ -107,6 +111,137 @@ abstract final class PtyProcesses {
     return shellIntegration ? injectShellIntegration(launch, os: os) : launch;
   }
 
+  static Future<({PtyLaunch launch, WindowsProfilePolicy? policy})>
+  prepareInteractiveTerminalLaunch(
+    String root, {
+    required int columns,
+    required int rows,
+    TerminalShell? shell,
+    TerminalEnvironmentRequest? environment,
+  }) async {
+    final launch = await terminalLaunch(
+      root,
+      columns: columns,
+      rows: rows,
+      shell: shell,
+      environment: environment,
+      shellIntegration: false,
+    );
+    final legacy =
+        Platform.isWindows &&
+            p.windows.basename(launch.executable).toLowerCase() ==
+                'powershell.exe'
+        ? systemWindowsPowerShellExecutable()
+        : null;
+    if (legacy != null &&
+        p.windows.equals(launch.executable, legacy) &&
+        launch.arguments.every(
+          (arg) => const ['-nologo', '-nol'].contains(arg.toLowerCase()),
+        )) {
+      final restriction = await _windowsProfileRestriction(launch, legacy);
+      if (restriction != null) {
+        return (
+          launch: launch,
+          policy: restriction.hasProfile
+              ? (canUseRemoteSigned: restriction.canUseRemoteSigned)
+              : null,
+        );
+      }
+    }
+    return (launch: injectShellIntegration(launch, os: _os), policy: null);
+  }
+
+  static Future<({bool hasProfile, bool canUseRemoteSigned})?>
+  _windowsProfileRestriction(PtyLaunch launch, String executable) async {
+    final shellHome = p.windows.dirname(executable);
+    try {
+      final probe = await Process.start(
+        executable,
+        [
+          '-NoProfile',
+          '-NonInteractive',
+          '-Command',
+          r'''
+$ErrorActionPreference = 'Stop'
+$effective = Microsoft.PowerShell.Security\Get-ExecutionPolicy
+if ($effective -ne 'Restricted') { exit }
+$scopes = Microsoft.PowerShell.Security\Get-ExecutionPolicy -List
+$group = @($scopes | Where-Object {
+  $_.Scope -in 'MachinePolicy','UserPolicy' -and $_.ExecutionPolicy -ne 'Undefined'
+}).Count -gt 0
+$profileExists = $false
+foreach ($file in @($PROFILE.AllUsersAllHosts, $PROFILE.AllUsersCurrentHost,
+                    $PROFILE.CurrentUserAllHosts, $PROFILE.CurrentUserCurrentHost)) {
+  if (Microsoft.PowerShell.Management\Test-Path -LiteralPath $file -PathType Leaf) {
+    $profileExists = $true
+    break
+  }
+}
+@{hasProfile=$profileExists; canUseRemoteSigned=(-not $group)} |
+  Microsoft.PowerShell.Utility\ConvertTo-Json -Compress
+''',
+        ],
+        workingDirectory: shellHome,
+        environment: {
+          for (final entry in launch.environment!.entries)
+            if (entry.key.toUpperCase() != 'PSMODULEPATH')
+              entry.key: entry.value,
+          'PSModulePath': p.windows.join(shellHome, 'Modules'),
+        },
+        includeParentEnvironment: false,
+      );
+      final output =
+          await Future.wait<Object?>([
+            ascii.decoder.bind(probe.stdout).join(),
+            probe.stderr.drain<Object?>(),
+            probe.exitCode,
+          ]).timeout(
+            const Duration(seconds: 4),
+            onTimeout: () {
+              probe.kill();
+              throw TimeoutException('Windows PowerShell profile check');
+            },
+          );
+      if (output[2] != 0 || (output[0] as String).trim().isEmpty) return null;
+      final json = jsonDecode(output[0] as String);
+      if (json case {
+        'hasProfile': final bool exists,
+        'canUseRemoteSigned': final bool canUseRemoteSigned,
+      }) {
+        return (hasProfile: exists, canUseRemoteSigned: canUseRemoteSigned);
+      }
+    } on ProcessException {
+      return null;
+    } on TimeoutException {
+      return null;
+    } on FormatException {
+      return null;
+    }
+    return null;
+  }
+
+  static Future<PtyLaunch> launchWindowsProfileChoice(
+    PtyLaunch launch, {
+    required bool useRemoteSigned,
+  }) async {
+    if (useRemoteSigned) launch = injectShellIntegration(launch, os: _os);
+    return PtyLaunch(
+      executable: launch.executable,
+      arguments: [
+        if (useRemoteSigned) ...[
+          '-ExecutionPolicy',
+          'RemoteSigned',
+        ] else
+          '-NoProfile',
+        ...launch.arguments,
+      ],
+      workingDirectory: launch.workingDirectory,
+      environment: launch.environment,
+      columns: launch.columns,
+      rows: launch.rows,
+    );
+  }
+
   static Map<String, String> _finish(
     TerminalEnvironmentRequest? request,
     Map<String, String> environment,
@@ -123,15 +258,18 @@ abstract final class PtyProcesses {
         shells = null;
       }
     }
+    final profiles = detectTerminalProfiles(
+      os,
+      base,
+      exists: _exists,
+      list: _list,
+      etcShells: shells,
+      configured: configured,
+    );
     return (
-      profiles: detectTerminalProfiles(
-        os,
-        base,
-        exists: _exists,
-        list: _list,
-        etcShells: shells,
-        configured: configured,
-      ),
+      profiles: os == TerminalOs.windows
+          ? await withWindowsTerminalProfileVersions(profiles)
+          : profiles,
       systemShell: defaultTerminalShell(os, base, exists: _exists, list: _list),
     );
   }
